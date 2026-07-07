@@ -373,8 +373,12 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
       params={
         "command_name": "velocity",
         "velocity_stages": [
-          {"step": 0, "lin_vel_x": (-1.0, 1.0), "ang_vel_z": (-0.5, 0.5)},
+          {"step": 0, "lin_vel_x": (-1.0, 1.0), "ang_vel_z": (-0.3, 0.3)},
           # TODO 9: 在此列表中添加 step=5000*24 和 step=10000*24 两个阶段
+          # 自定义 Stage 1：中期扩大速度采样范围。
+          {"step": 3000 * 24, "lin_vel_x": (-1.5, 2.0), "ang_vel_z": (-0.5, 0.5)},
+          # 自定义 Stage 2：后期继续提高速度任务难度。
+          {"step": 6000 * 24, "lin_vel_x": (-2.0, 3.0), "ang_vel_z": (-0.7, 0.7)},
         ],
       },
     ),

@@ -52,7 +52,11 @@ def track_linear_velocity(
   # 概念: root_link_lin_vel_b、高斯奖励 exp(-error/std²)
   # 索引: docs/HOMEWORK_TODO.md
   # ==============================================================================
-  raise NotImplementedError("TODO 7: 实现 xy_error、z_error 与 lin_vel_error")
+  # xy 跟踪指令速度，z 方向默认目标为 0。
+  xy_error = torch.sum(torch.square(command[:, :2] - actual[:, :2]), dim=1)
+  z_error = torch.square(actual[:, 2])
+  line_error = xy_error + z_error
+  return torch.exp(-line_error / std**2)
   # --- 实现提示 ---
   # - actual 为 body frame 线速度（root_link_lin_vel_b）
   # - xy 平面：跟踪 command[:, :2]；z 方向：惩罚偏离 0 的 vertical 漂移
@@ -78,7 +82,9 @@ def track_base_height(
   # 概念: root_link_pos_w[:, 2]、exp(-error²/std²)
   # 索引: docs/HOMEWORK_TODO.md
   # ==============================================================================
-  raise NotImplementedError("TODO 6: 实现 actual_height、height_error 与 return")
+  # 用骨盆/root 世界高度计算高度跟踪误差。
+  height_error = torch.square(command[:, 0] - asset.data.root_link_pos_w[:, 2])
+  return torch.exp(-height_error / std**2)
   # --- 实现提示 ---
   # - 从 asset.data 读取骨盆世界坐标高度（z 分量）
   # - 与 command[:, 0] 计算平方误差
@@ -108,7 +114,11 @@ def track_angular_velocity(
   # 概念: root_link_ang_vel_b、高斯奖励 exp(-error/std²)
   # 索引: docs/HOMEWORK_TODO.md
   # ==============================================================================
-  raise NotImplementedError("TODO 8: 实现 z_error、xy_error 与 ang_vel_error")
+  # yaw 角速度跟踪指令，roll/pitch 角速度尽量为 0。
+  z_error = torch.square(command[:, 2] - actual[:, 2])
+  xy_error = torch.sum(torch.square(actual[:, :2]), dim=1)
+  ang_error = xy_error + z_error
+  return torch.exp(-ang_error / std**2)
   # --- 实现提示 ---
   # - actual 为 body frame 角速度（root_link_ang_vel_b）
   # - z 轴：跟踪 command[:, 2]（yaw 角速度）；xy：惩罚 roll/pitch 角速度接近 0

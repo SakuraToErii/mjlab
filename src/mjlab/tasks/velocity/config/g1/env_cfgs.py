@@ -190,6 +190,15 @@ def unitree_g1_flat_height_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # 概念: UniformBaseHeightCommandCfg、resampling_time_range、ranges.height
   # 索引: docs/HOMEWORK_TODO.md · 完整说明见 docs/HW3_蹲姿行走策略.md
   # ==============================================================================
+  # 注册高度指令，供策略学习不同蹲姿目标。
+  cfg.commands["base_height"] = UniformBaseHeightCommandCfg(
+    entity_name="robot",
+    resampling_time_range=(3.0, 8.0),
+    ranges=UniformBaseHeightCommandCfg.Ranges(
+      height=(0.45, 0.80)
+    )
+  )
+
   # --- 实现提示 ---
   # - 向 cfg.commands 注册 "base_height"
   # - 参考 velocity_env_cfg.py 中 commands["velocity"] 的写法
@@ -206,8 +215,12 @@ def unitree_g1_flat_height_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # ==============================================================================
   height_command_obs = ObservationTermCfg(
     func=envs_mdp.generated_commands,
-    params={"command_name": "TODO"},  # TODO 4: 替换为正确的 command 名称
+    params={"command_name": "base_height"},  # TODO 4: 替换为正确的 command 名称
   )
+  # actor 和 critic 都需要观测当前目标高度。
+  cfg.observations["actor"].terms["height_command"] = height_command_obs
+  cfg.observations["critic"].terms["height_command"] = height_command_obs
+
   # --- 实现提示 ---
   # - params["command_name"] 须与 TODO 3 注册的 commands 键一致
   # - 将 height_command 观测项加入 cfg.observations["actor"] 与 ["critic"] 的 terms
@@ -221,6 +234,15 @@ def unitree_g1_flat_height_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # 概念: RewardTermCfg、command_name="base_height"
   # 索引: docs/HOMEWORK_TODO.md · 完整说明见 docs/HW3_蹲姿行走策略.md
   # ==============================================================================
+  # 高度奖励鼓励骨盆高度跟随 base_height 指令。
+  cfg.rewards["track_base_height"] = RewardTermCfg(
+    func=mdp.track_base_height,
+    weight=2.0,
+    params={
+      "command_name": "base_height",
+      "std": 0.05,
+    },
+  )
   # --- 实现提示 ---
   # - 向 cfg.rewards 注册 "track_base_height"
   # - func 指向 mdp.track_base_height；params 含 command_name 与 std（见 HW3 §6 TODO 5）

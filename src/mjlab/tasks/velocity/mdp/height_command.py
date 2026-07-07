@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """Height command term for pelvis/root absolute height.
 
 Homework TODOs in this file: 1, 2  (of 10 total)
 Index: docs/HOMEWORK_TODO.md · grep: 【作业 TODO
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -56,7 +56,15 @@ class UniformBaseHeightCommand(CommandTerm):
     # 概念: metrics["error_height"]、root_link_pos_w[:, 2]
     # 索引: docs/HOMEWORK_TODO.md
     # ==============================================================================
-    raise NotImplementedError("TODO 2: 实现 height_error 与 metrics 更新")
+    # 计算目标高度与当前骨盆高度的绝对误差。
+    height_error = torch.abs(
+      self.height_command[:, 0] - self.robot.data.root_link_pos_w[:, 2]
+    )
+    # 框架在重置时会把它按环境取平均再清零
+    self.metrics["error_height"] += height_error / max_command_step
+    # 记录当前目标高度，便于训练日志观察。
+    self.metrics["target_height_mean"] = self.height_command[:, 0]
+
     # --- 实现提示 ---
     # - 从 self.robot.data 读取骨盆世界坐标 z（root_link_pos_w[:, 2]）
     # - 计算 |指令高度 - 实际高度|，累加进 metrics["error_height"]（除以 max_command_step）
@@ -73,7 +81,8 @@ class UniformBaseHeightCommand(CommandTerm):
     # 概念: torch.uniform_、UniformBaseHeightCommandCfg.ranges
     # 索引: docs/HOMEWORK_TODO.md
     # ==============================================================================
-    raise NotImplementedError("TODO 1: 实现 height_command 均匀采样")
+    # 为本次重采样的环境写入新的高度指令。
+    self.height_command[env_ids, 0] = r.uniform_(*self.cfg.ranges.height)
     # --- 实现提示 ---
     # - 使用已创建的 r 张量，对 height_command[env_ids, 0] 做均匀随机采样
     # - 采样上下界来自 self.cfg.ranges.height

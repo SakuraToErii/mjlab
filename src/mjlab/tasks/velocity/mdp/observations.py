@@ -50,7 +50,8 @@ def foot_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   # 概念: ContactSensor.data.found、privileged observations
   # 索引: docs/HOMEWORK_TODO.md
   # ==============================================================================
-  raise NotImplementedError("TODO 10: 返回足部接触布尔/浮点张量")
+  # 将接触标志转成 float，作为 critic 特权观测。
+  return (sensor_data.found > 0).float()  # [num_envs, num_feet]
   # --- 实现提示 ---
   # - 基于 sensor_data.found 构造 0/1 浮点张量（非 bool）
   # - shape 应为 [num_envs, num_feet]；供 critic 特权观测使用
