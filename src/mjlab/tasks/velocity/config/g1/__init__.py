@@ -4,6 +4,7 @@ from mjlab.tasks.velocity.rl import VelocityOnPolicyRunner
 from .env_cfgs import (
   unitree_g1_flat_env_cfg,
   unitree_g1_flat_height_env_cfg,
+  unitree_g1_flat_height_env_cfg2,
 )
 from .rl_cfg import unitree_g1_ppo_runner_cfg, unitree_g1_velocity_height_ppo_runner_cfg
 
@@ -19,6 +20,14 @@ register_mjlab_task(
   task_id="Mjlab-VelocityHeight-Flat-Unitree-G1",
   env_cfg=unitree_g1_flat_height_env_cfg(),
   play_env_cfg=unitree_g1_flat_height_env_cfg(play=True),
+  rl_cfg=unitree_g1_velocity_height_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-VelocityHeight-Flat-Unitree-G1-2",
+  env_cfg=unitree_g1_flat_height_env_cfg2(),
+  play_env_cfg=unitree_g1_flat_height_env_cfg2(play=True),
   rl_cfg=unitree_g1_velocity_height_ppo_runner_cfg(),
   runner_cls=VelocityOnPolicyRunner,
 )

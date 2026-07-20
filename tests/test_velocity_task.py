@@ -92,6 +92,7 @@ def test_g1_velocity_has_correct_action_scale(g1_velocity_task_ids: list[str]) -
 
 
 G1_VELOCITY_HEIGHT_TASK_ID = "Mjlab-VelocityHeight-Flat-Unitree-G1"
+G1_VELOCITY_HEIGHT_TASK_ID_2 = "Mjlab-VelocityHeight-Flat-Unitree-G1-2"
 G1_VELOCITY_FLAT_TASK_ID = "Mjlab-Velocity-Flat-Unitree-G1"
 
 
@@ -100,11 +101,20 @@ def test_g1_velocity_height_task_is_registered() -> None:
   assert G1_VELOCITY_HEIGHT_TASK_ID in list_tasks()
 
 
-def test_only_two_g1_velocity_tasks_registered() -> None:
-  """The fork should expose exactly Flat and VelocityHeight G1 tasks."""
+def test_g1_velocity_height_task_2_is_registered() -> None:
+  """The G1 velocity + height cfg2 experiment task should be registered."""
+  assert G1_VELOCITY_HEIGHT_TASK_ID_2 in list_tasks()
+
+
+def test_only_three_g1_velocity_tasks_registered() -> None:
+  """The fork should expose Flat, VelocityHeight, and VelocityHeight-2 G1 tasks."""
   g1_tasks = [t for t in list_tasks() if "Unitree-G1" in t]
   assert sorted(g1_tasks) == sorted(
-    [G1_VELOCITY_FLAT_TASK_ID, G1_VELOCITY_HEIGHT_TASK_ID]
+    [
+      G1_VELOCITY_FLAT_TASK_ID,
+      G1_VELOCITY_HEIGHT_TASK_ID,
+      G1_VELOCITY_HEIGHT_TASK_ID_2,
+    ]
   )
 
 
