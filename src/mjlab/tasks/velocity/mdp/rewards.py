@@ -126,6 +126,25 @@ def track_angular_velocity(
   # <<< HOMEWORK_TODO_8_END
 
 
+def track_yaw_velocity(
+  env: ManagerBasedRlEnv,
+  std: float,
+  command_name: str,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward for tracking commanded yaw rate only (no roll/pitch regularization).
+
+  Used by height/crouch experiments where gait sway would collapse a joint
+  track_angular_velocity term that also penalizes body-frame ωx/ωy.
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None, f"Command '{command_name}' not found."
+  actual = asset.data.root_link_ang_vel_b
+  z_error = torch.square(command[:, 2] - actual[:, 2])
+  return torch.exp(-z_error / std**2)
+
+
 class upright:
   """Reward for keeping the base upright.
 
@@ -520,6 +539,104 @@ class variable_posture:
       + self.std_walking * walking_mask.unsqueeze(1)
       + self.std_running * running_mask.unsqueeze(1)
     )
+
+    current_joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+    desired_joint_pos = self.default_joint_pos[:, asset_cfg.joint_ids]
+    error_squared = torch.square(current_joint_pos - desired_joint_pos)
+
+    return torch.exp(-torch.mean(error_squared / (std**2), dim=1))
+
+
+class variable_posture_height:
+  """Speed-dependent pose reward with extra loosening only when crouching.
+
+  Same as ``variable_posture`` near ``height_nominal``. As the height command
+  drops toward ``height_crouch``, std blends toward the crouch std tables so
+  hip/knee flexion is not fought at low base height. Above nominal height the
+  crouch blend is zero (base std only).
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    asset: Entity = env.scene[cfg.params["asset_cfg"].name]
+    default_joint_pos = asset.data.default_joint_pos
+    assert default_joint_pos is not None
+    self.default_joint_pos = default_joint_pos
+
+    _, joint_names = asset.find_joints(cfg.params["asset_cfg"].joint_names)
+
+    def _resolve(key: str) -> torch.Tensor:
+      _, _, values = resolve_matching_names_values(
+        data=cfg.params[key],
+        list_of_strings=joint_names,
+      )
+      return torch.tensor(values, device=env.device, dtype=torch.float32)
+
+    self.std_standing = _resolve("std_standing")
+    self.std_walking = _resolve("std_walking")
+    self.std_running = _resolve("std_running")
+    self.std_crouch_standing = _resolve("std_crouch_standing")
+    self.std_crouch_walking = _resolve("std_crouch_walking")
+    self.std_crouch_running = _resolve("std_crouch_running")
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    std_standing,
+    std_walking,
+    std_running,
+    std_crouch_standing,
+    std_crouch_walking,
+    std_crouch_running,
+    asset_cfg: SceneEntityCfg,
+    command_name: str,
+    height_command_name: str,
+    height_nominal: float,
+    height_crouch: float,
+    walking_threshold: float = 0.5,
+    running_threshold: float = 1.5,
+  ) -> torch.Tensor:
+    del (
+      std_standing,
+      std_walking,
+      std_running,
+      std_crouch_standing,
+      std_crouch_walking,
+      std_crouch_running,
+    )
+
+    asset: Entity = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    assert command is not None
+    height_cmd = env.command_manager.get_command(height_command_name)
+    assert height_cmd is not None
+
+    linear_speed = torch.norm(command[:, :2], dim=1)
+    angular_speed = torch.abs(command[:, 2])
+    total_speed = linear_speed + angular_speed
+
+    standing_mask = (total_speed < walking_threshold).float()
+    walking_mask = (
+      (total_speed >= walking_threshold) & (total_speed < running_threshold)
+    ).float()
+    running_mask = (total_speed >= running_threshold).float()
+
+    std_base = (
+      self.std_standing * standing_mask.unsqueeze(1)
+      + self.std_walking * walking_mask.unsqueeze(1)
+      + self.std_running * running_mask.unsqueeze(1)
+    )
+    std_crouch = (
+      self.std_crouch_standing * standing_mask.unsqueeze(1)
+      + self.std_crouch_walking * walking_mask.unsqueeze(1)
+      + self.std_crouch_running * running_mask.unsqueeze(1)
+    )
+
+    # 0 at/above nominal height, 1 at/below full crouch height.
+    denom = max(height_nominal - height_crouch, 1e-6)
+    crouch_amount = torch.clamp(
+      (height_nominal - height_cmd[:, 0]) / denom, min=0.0, max=1.0
+    ).unsqueeze(1)
+    std = std_base * (1.0 - crouch_amount) + std_crouch * crouch_amount
 
     current_joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
     desired_joint_pos = self.default_joint_pos[:, asset_cfg.joint_ids]

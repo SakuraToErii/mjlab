@@ -33,10 +33,21 @@ def unitree_g1_base_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create Unitree G1 flat terrain velocity configuration."""
   cfg = make_velocity_env_cfg()
 
+  # --- mjwarp(GPU)仿真缓冲区与求解器参数 ---
+  # njmax: 每个 env 的约束(constraint)缓冲区上限。求解器把每个接触展开成
+  #   若干约束(法向 + 摩擦锥)，超过此数会丢弃约束并可能报溢出。
   cfg.sim.njmax = 300
+  # ccd_iterations: 凸-凸碰撞检测(GJK/CCD)迭代次数，用于 mesh-mesh 碰撞；
+  #   越大越准越慢，50 已足够。
   cfg.sim.mujoco.ccd_iterations = 50
+  # contact_sensor_maxmatch: 一次 forward 中每个接触传感器最多匹配的接触数，
+  #   决定 ContactSensor 的 found/force 读取上限。
   cfg.sim.contact_sensor_maxmatch = 64
-  cfg.sim.nconmax = None
+  # nconmax: 每个 env 的接触(contact)缓冲区上限。broadphase 生成的候选接触
+  #   存这里，超容量会丢弃并报 "broadphase overflow - increase nconmax ..."。
+  #   None 走启发式估值，蹲姿任务接触多时容易估少，故显式设 64(告警最低要 54，
+  #   留余量)。若再报 njmax 溢出，把上面的 njmax 提到 512~1000。
+  cfg.sim.nconmax = 64
 
   cfg.scene.entities = {"robot": get_g1_robot_cfg()}
 
@@ -167,7 +178,7 @@ def unitree_g1_base_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
     velocity_cmd = cfg.commands["velocity"]
     assert isinstance(velocity_cmd, UniformVelocityCommandCfg)
-    velocity_cmd.ranges.lin_vel_x = (-1.5, 2.0)
+    velocity_cmd.ranges.lin_vel_x = (-2, 3.0)
     velocity_cmd.ranges.ang_vel_z = (-0.7, 0.7)
 
   return cfg
@@ -194,6 +205,7 @@ def unitree_g1_flat_height_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.commands["base_height"] = UniformBaseHeightCommandCfg(
     entity_name="robot",
     resampling_time_range=(3.0, 8.0),
+    debug_vis=True,
     ranges=UniformBaseHeightCommandCfg.Ranges(
       height=(0.45, 0.80)
     )
@@ -247,5 +259,102 @@ def unitree_g1_flat_height_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # - 向 cfg.rewards 注册 "track_base_height"
   # - func 指向 mdp.track_base_height；params 含 command_name 与 std（见 HW3 §6 TODO 5）
   # <<< HOMEWORK_TODO_5_END
+
+  if play:
+
+    height_cmd = cfg.commands["base_height"]
+    assert isinstance(height_cmd, UniformBaseHeightCommandCfg)
+    height_cmd.ranges.height = (0.45, 0.80)
+
+  return cfg
+
+
+
+def unitree_g1_flat_height_env_cfg2(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Height velocity env with reward tweaks for crouch gait.
+
+  Differences vs ``unitree_g1_flat_height_env_cfg``:
+  - Angular velocity reward tracks yaw only (no roll/pitch rate in the exp term).
+  - Pose std loosens only when base_height command is below nominal stand height.
+  """
+  cfg = unitree_g1_flat_height_env_cfg(play=play)
+
+  # cfg2-only: replace angular term with yaw-only tracker (base cfg keeps xy+z).
+  # Roll/pitch rates remain handled by body_ang_vel / upright on this env.
+  ang = cfg.rewards["track_angular_velocity"]
+  cfg.rewards["track_angular_velocity"] = RewardTermCfg(
+    func=mdp.track_yaw_velocity,
+    weight=ang.weight,
+    params={
+      "command_name": ang.params["command_name"],
+      "std": ang.params["std"],
+    },
+  )
+
+  # Keep base speed std tables; only crouch tables are looser on lower body.
+  # Blend: height_cmd >= height_nominal → base std; height_cmd <= height_crouch → crouch std.
+  pose = cfg.rewards["pose"]
+  crouch_standing = {
+    r".*hip_pitch.*": 0.5,
+    r".*hip_roll.*": 0.2,
+    r".*hip_yaw.*": 0.2,
+    r".*knee.*": 0.6,
+    r".*ankle_pitch.*": 0.35,
+    r".*ankle_roll.*": 0.12,
+    r".*waist_yaw.*": 0.15,
+    r".*waist_roll.*": 0.08,
+    r".*waist_pitch.*": 0.2,
+    r".*shoulder_pitch.*": 0.15,
+    r".*shoulder_roll.*": 0.15,
+    r".*shoulder_yaw.*": 0.1,
+    r".*elbow.*": 0.15,
+    r".*wrist.*": 0.3,
+  }
+  crouch_walking = {
+    r".*hip_pitch.*": 0.5,
+    r".*hip_roll.*": 0.2,
+    r".*hip_yaw.*": 0.2,
+    r".*knee.*": 0.55,
+    r".*ankle_pitch.*": 0.35,
+    r".*ankle_roll.*": 0.12,
+    r".*waist_yaw.*": 0.2,
+    r".*waist_roll.*": 0.08,
+    r".*waist_pitch.*": 0.2,
+    r".*shoulder_pitch.*": 0.15,
+    r".*shoulder_roll.*": 0.15,
+    r".*shoulder_yaw.*": 0.1,
+    r".*elbow.*": 0.15,
+    r".*wrist.*": 0.3,
+  }
+  crouch_running = {
+    r".*hip_pitch.*": 0.65,
+    r".*hip_roll.*": 0.25,
+    r".*hip_yaw.*": 0.25,
+    r".*knee.*": 0.7,
+    r".*ankle_pitch.*": 0.4,
+    r".*ankle_roll.*": 0.15,
+    r".*waist_yaw.*": 0.3,
+    r".*waist_roll.*": 0.08,
+    r".*waist_pitch.*": 0.25,
+    r".*shoulder_pitch.*": 0.5,
+    r".*shoulder_roll.*": 0.2,
+    r".*shoulder_yaw.*": 0.15,
+    r".*elbow.*": 0.35,
+    r".*wrist.*": 0.3,
+  }
+  cfg.rewards["pose"] = RewardTermCfg(
+    func=mdp.variable_posture_height,
+    weight=pose.weight,
+    params={
+      **pose.params,
+      "height_command_name": "base_height",
+      # Matches height command upper end / near standing root height.
+      "height_nominal": 0.80,
+      "height_crouch": 0.45,
+      "std_crouch_standing": crouch_standing,
+      "std_crouch_walking": crouch_walking,
+      "std_crouch_running": crouch_running,
+    },
+  )
 
   return cfg

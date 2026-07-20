@@ -15,6 +15,7 @@ import torch
 
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.utils.lab_api.math import matrix_from_quat
 
 if TYPE_CHECKING:
   import viser
@@ -125,14 +126,26 @@ class UniformBaseHeightCommand(CommandTerm):
       self.height_command[idx, 0] = self._height_slider.value
 
   def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
-    """Draw target and actual pelvis height markers."""
+    """Draw target and actual pelvis height gauges to the robot's right side.
+
+    Each gauge is a sphere at the target/actual height with a vertical stem from
+    the ground (z=0) up to the sphere, so the stem length reads as the height.
+    The actual gauge is shifted 0.02m to the robot's right (body -y) of the
+    target gauge so the two stay distinguishable when heights are close. xy
+    follows the robot; z is the absolute target/actual height.
+    """
     env_indices = visualizer.get_env_indices(self.num_envs)
     if not env_indices:
       return
 
     cmds = self.command.cpu().numpy()
     base_pos_ws = self.robot.data.root_link_pos_w.cpu().numpy()
-    sphere_radius = 0.04 * visualizer.meansize
+    base_mat_ws = matrix_from_quat(self.robot.data.root_link_quat_w).cpu().numpy()
+    sphere_radius = 0.01
+    # Stem diameter = 2/3 of the sphere diameter; radius scales by the same ratio.
+    line_radius = (2.0 / 3.0) * sphere_radius
+    side_offset = self.cfg.viz.side_offset
+    actual_shift = 0.02  # actual gauge sits this far right of the target gauge
 
     for batch in env_indices:
       base_pos_w = base_pos_ws[batch]
@@ -141,22 +154,49 @@ class UniformBaseHeightCommand(CommandTerm):
 
       target_height = cmds[batch, 0]
       actual_height = base_pos_w[2]
-      xy = base_pos_w[:2]
 
-      target_center = np.array([xy[0], xy[1], target_height], dtype=np.float64)
-      actual_center = np.array([xy[0] + 0.15, xy[1], actual_height], dtype=np.float64)
+      # Body -y is the robot's right; the offset rotates with the robot. The
+      # actual gauge is `actual_shift` further right so it doesn't overlap the
+      # target gauge. Only xy follows the robot; z is set per gauge below.
+      right_vec = base_mat_ws[batch] @ np.array([0.0, -1.0, 0.0])
+      tx = base_pos_w[0] + side_offset * right_vec[0]
+      ty = base_pos_w[1] + side_offset * right_vec[1]
+      ax = base_pos_w[0] + (side_offset + actual_shift) * right_vec[0]
+      ay = base_pos_w[1] + (side_offset + actual_shift) * right_vec[1]
 
+      target_center = np.array([tx, ty, target_height], dtype=np.float64)
+      actual_center = np.array([ax, ay, actual_height], dtype=np.float64)
+      target_ground = np.array([tx, ty, 0.0], dtype=np.float64)
+      actual_ground = np.array([ax, ay, 0.0], dtype=np.float64)
+
+      # Target gauge: sphere at target height + vertical stem from ground up to it.
       visualizer.add_sphere(
         center=target_center,
         radius=sphere_radius,
         color=self.cfg.viz.target_color,
         label="base_height_target",
       )
+      visualizer.add_cylinder(
+        start=target_ground,
+        end=target_center,
+        radius=line_radius,
+        color=self.cfg.viz.target_color,
+        label="base_height_target_stem",
+      )
+
+      # Actual gauge: sphere at real pelvis height + stem, shifted right.
       visualizer.add_sphere(
         center=actual_center,
         radius=sphere_radius,
         color=self.cfg.viz.actual_color,
         label="base_height_actual",
+      )
+      visualizer.add_cylinder(
+        start=actual_ground,
+        end=actual_center,
+        radius=line_radius,
+        color=self.cfg.viz.actual_color,
+        label="base_height_actual_stem",
       )
 
 
@@ -172,8 +212,12 @@ class UniformBaseHeightCommandCfg(CommandTermCfg):
 
   @dataclass
   class VizCfg:
-    target_color: tuple[float, float, float, float] = (1.0, 0.6, 0.0, 0.8)
-    actual_color: tuple[float, float, float, float] = (0.2, 0.8, 1.0, 0.8)
+    target_color: tuple[float, float, float, float] = (0.60, 0.20, 0.85, 0.90)
+    """Target height marker color (purple)."""
+    actual_color: tuple[float, float, float, float] = (1.00, 0.40, 0.70, 0.90)
+    """Actual pelvis height marker color (pink)."""
+    side_offset: float = 0.4
+    """Lateral offset (m) along the robot's body -y (right) for height markers."""
 
   viz: VizCfg = field(default_factory=VizCfg)
 
